@@ -1,0 +1,20 @@
+path: C:/Users/lucaz/Desktop/AI study/pupptesFinder/dataset/train/data4train # path to dataset
+train: images/train # train images (relative path)
+val: images/val # val images (relative path)
+
+nc: 12
+
+# classes
+names:
+  0: base
+  1: bunny_corpo_ant
+  2: dragon_mask
+  3: head
+  4: helmet
+  5: juno_front_top
+  6: left_base
+  7: main_body
+  8: parrot
+  9: rear_body
+  10: right_arm
+  11: right_petal
