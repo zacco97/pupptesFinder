@@ -65,17 +65,18 @@ class TrainDataSet(Dataset):
         current = ""
         j = 0
         for i in range(self.__len__()):
-            img_path_render = self.annotation_df.iloc[i, 1]
+            # img_path_coco = self.annotation_df.iloc[i, 1]
             img_path_raw = self.annotation_df.iloc[i, 3]
-            image_path_render = os.path.join(self.root_dir, img_path_render)
+            # image_path_render = os.path.join(self.root_dir, img_path_render)
             image_path_raw = os.path.join(self.root_dir, img_path_raw)
-            # image_render = cv2.cvtColor(image_render, cv2.COLOR_BGR2RGB)
-            image_raw = cv2.imread(image_path_raw)
-            image_raw = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB)[:, :, 0]
-
+            
+            image_raw_orig = cv2.imread(image_path_raw)
+            image_raw = cv2.cvtColor(image_raw_orig, cv2.COLOR_BGR2GRAY)
+            
+            # segmentation
             if self.annotation_df.iloc[i, 4] not in ["base", "parrot", "bunny_corpo_ant"]:
                 image_raw[image_raw > np.max(image_raw) - 10] = 255
-                # segmentation
+                
                 blur = cv2.GaussianBlur(image_raw, (5, 5), 0)
                 thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
                 
@@ -84,32 +85,31 @@ class TrainDataSet(Dataset):
                 image_raw[image_raw > 20] = 255
                 blur = cv2.GaussianBlur(image_raw, (5, 5), 0)
                 thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+                
+                contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+                cnt = max(contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(cnt)
             
-            # import matplotlib.pyplot as plt
-            # plt.imshow(thresh, cmap="gray")
-            # plt.show()
-            
-            cnt = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0][0]
-            x, y, w, h = cv2.boundingRect(cnt)
-            if i % 5 == 0:
-                print(self.annotation_df.iloc[i, 4])
-                fig, ax = plt.subplots(1,3)
-                img_t = cv2.rectangle(np.stack([image_raw, image_raw,image_raw], axis=-1), (x, y), (x + w, y + h), (0, 255, 0), 2)
-                ax[0].imshow(image_raw, cmap="gray")
-                ax[1].imshow(thresh, cmap="gray")
-                ax[2].imshow(img_t)
-                plt.show()
+            # if i % 5 == 0:
+            #     print(self.annotation_df.iloc[i, 4])
+            #     fig, ax = plt.subplots(1,3)
+            #     img_t = cv2.rectangle(np.stack([image_raw, image_raw,image_raw], axis=-1), (x, y), (x + w, y + h), (0, 255, 0), 2)
+            #     ax[0].imshow(image_raw, cmap="gray")
+            #     ax[1].imshow(thresh, cmap="gray")
+            #     ax[2].imshow(img_t)
+            #     plt.show()
             # img = cv2.rectangle(image_render, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-            image_render = cv2.imread(image_path_render)
+            # image_render = cv2.imread(image_path_render)
+            
             tagName = self.annotation_df.iloc[i, -1]
             if tagName != current:
                 current = tagName
                 j += 1
-            center_x = (x + w / 2) / image_render.shape[1]
-            center_y = (y + h / 2) / image_render.shape[0]
-            width = w / image_render.shape[1]
-            height = h / image_render.shape[0]
+            center_x = (x + w / 2) / thresh.shape[1]
+            center_y = (y + h / 2) / thresh.shape[0]
+            width = w / thresh.shape[1]
+            height = h / thresh.shape[0]
 
             # saving
             name = (
@@ -119,7 +119,7 @@ class TrainDataSet(Dataset):
             )
 
             if count != val_length:
-                set = random.choice(["train", "val"])
+                set = np.random.choice(["train", "val"])
                 if set == "val":
                     count += 1
             else:
@@ -128,9 +128,37 @@ class TrainDataSet(Dataset):
             if i == j * len_per_class - 1:
                 count = 0
 
-            with open(f"./{output_folder}/labels/{set}/{name}.txt", "w+") as label_file:
-                label_file.write(f"{tagName} {center_x} {center_y} {width} {height}\n")
+            for k in range(2):
+                
 
-            image_render = cv2.cvtColor(image_render, cv2.COLOR_BGR2GRAY)
-            img = np.stack((image_render,) * 3, axis=-1)
-            cv2.imwrite(f"./{output_folder}/images/{set}/{name}.jpg", img=image_render)
+                if k == 0:
+                    # TODO implement in the class
+                    # read random image on which you will compute a bitwise and
+                    path = r"C:\Users\lucaz\Desktop\random"
+                    random = os.listdir(path=path)
+                    
+                    img_name = np.random.choice(random)
+                    random_img = cv2.imread(os.path.join(path, img_name))
+                    random_img = cv2.resize(random_img, (640, 640), interpolation=cv2.INTER_AREA)
+                    random_img = cv2.cvtColor(random_img, cv2.COLOR_BGR2GRAY)
+                    image_raw_orig = image_raw_orig[:,:,0]
+                    
+                    result = np.where(image_raw_orig > 20, image_raw_orig, random_img)
+                    result = np.stack((result,) * 3, axis=-1)
+                    
+                    # saving
+                    with open(f"./{output_folder}/labels/{set}/{name}_{k}.txt", "w+") as label_file:
+                        label_file.write(f"{tagName} {center_x} {center_y} {width} {height}\n")
+                    
+                    cv2.imwrite(f"./{output_folder}/images/{set}/{name}_{k}.jpg", img=result)
+                else:
+                    if i == j * len_per_class - 1:
+                        white_img = np.full(image_raw_orig.shape, 255)
+                        result = np.where(image_raw_orig > 20, image_raw_orig, white_img)
+                        result = np.stack((result,) * 3, axis=-1)
+                        # saving
+                        with open(f"./{output_folder}/labels/{set}/{name}_{k}.txt", "w+") as label_file:
+                            label_file.write(f"{tagName} {center_x} {center_y} {width} {height}\n")
+                        cv2.imwrite(f"./{output_folder}/images/{set}/{name}_{k}.jpg", img=result)
+                # plt.imshow(result)
+                # plt.show()
