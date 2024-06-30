@@ -15,16 +15,33 @@ if __name__ == "__main__":
     # output_path_val = "./data/data4val"
     build_csv(folder_path=data_folder_train, output_path=output_path_train)
     
-    cut_resume_file(csv_file="./dataset/train/data_train/resume_images.csv")
+    # cut_resume_file(csv_file="./dataset/train/data_train/resume_images.csv")
+    
+    pieces = {
+        "base": 3,
+        "bunny_corpo_ant": 5,
+        "dragon_mask" : 4,
+        "head" : 3, 
+        "helmet" : 3,
+        "juno_front_top" : 4, 
+        "left_base" : 6, 
+        "main_body" : 3, 
+        "parrot" : 3, 
+        "rear_body" : 4, 
+        "right_arm": 10,
+        "right_petal": 4
+    }
     
     entire_dataset = TrainDataSet(
-        csv_file="./dataset/train/data_train/resume_images.csv", root_dir="", transform=None
+        csv_file="./dataset/train/data_train/resume_images.csv", root_dir="", transform=None, 
+        path_to_random=r"C:\Users\lucaz\Desktop\random", max_pieces=pieces
     )
-
-    entire_dataset.show_dataset(10)
 
     entire_dataset.get_bounding_box(output_folder="./dataset/train/data4train", val_split=0)
 
+    entire_dataset.show_dataset(10)
+    
+    
     # classes = entire_dataset.get_classes()
     # creating the validation set
     # created from valset and saved in val4train

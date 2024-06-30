@@ -1,5 +1,6 @@
 import os
 import random
+import sys
 
 import cv2
 import matplotlib.pyplot as plt
@@ -9,10 +10,12 @@ from torch.utils.data import Dataset
 
 
 class TrainDataSet(Dataset):
-    def __init__(self, csv_file, root_dir="", transform=False):
+    def __init__(self, csv_file, root_dir="", transform=False, path_to_random="", max_pieces={}):
         self.annotation_df = pd.read_csv(csv_file)
         self.root_dir = root_dir
         self.transform = transform
+        self.path_to_random = path_to_random
+        self.max_pieces = max_pieces
 
     def __len__(self):
         return len(self.annotation_df)
@@ -26,8 +29,8 @@ class TrainDataSet(Dataset):
         return self.annotation_df["className"].unique()
 
     def __getitem__(self, idx):
-        img_path = self.annotation_df.iloc[idx, 1]
-        image_path = os.path.join(self.root_dir, img_path)
+        img_path = os.listdir("./dataset/train/data4train/images/train")[idx] # self.annotation_df.iloc[idx, 1]
+        image_path = os.path.join("./dataset/train/data4train/images/train", img_path)
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         class_name = self.annotation_df.iloc[idx, -2]
@@ -44,6 +47,29 @@ class TrainDataSet(Dataset):
             plt.imshow(image)
         plt.show()
 
+    def get_random_bg(self):
+        # read random image on which you will compute a bitwise and
+        random = os.listdir(path=self.path_to_random)
+        img_name = np.random.choice(random)
+        random_img = cv2.imread(os.path.join(self.path_to_random, img_name))
+        random_img = cv2.resize(random_img, (640, 640), interpolation=cv2.INTER_AREA)
+        random_img = cv2.cvtColor(random_img, cv2.COLOR_BGR2GRAY)
+        random_img = cv2.blur(random_img, (7, 7))
+        return random_img
+    
+    def adding_noise(self, random_bg, obj_name):
+        num_obj_to_add = np.random.choice(list(range(self.max_pieces[obj_name])))
+        path_to_noise = os.path.join("C:/Users/lucaz/Desktop/noise_img", obj_name)
+        list_noises = os.listdir(path_to_noise)
+        for _ in range(num_obj_to_add):
+            noise_img_name = np.random.choice(list_noises)
+            img_noise = cv2.cvtColor(cv2.imread(os.path.join(path_to_noise, noise_img_name)), cv2.COLOR_BGR2GRAY)
+            overlay_height, overlay_width = img_noise.shape[:2]
+            x_offset = random.randint(0, 640 - overlay_width)
+            y_offset = random.randint(0, 640 - overlay_height)
+            random_bg[y_offset:y_offset+overlay_height, x_offset:x_offset+overlay_width] = img_noise
+        return random_bg
+    
     def get_bounding_box(self, output_folder: str, val_split: float) -> None:
 
         if os.path.isdir(f"./{output_folder}"):
@@ -74,33 +100,16 @@ class TrainDataSet(Dataset):
             image_raw = cv2.cvtColor(image_raw_orig, cv2.COLOR_BGR2GRAY)
             
             # segmentation
-            if self.annotation_df.iloc[i, 4] not in ["base", "parrot", "bunny_corpo_ant"]:
-                image_raw[image_raw > np.max(image_raw) - 10] = 255
-                
-                blur = cv2.GaussianBlur(image_raw, (5, 5), 0)
-                thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-                
-                thresh = 255 - thresh
-            else: 
-                image_raw[image_raw > 20] = 255
-                blur = cv2.GaussianBlur(image_raw, (5, 5), 0)
-                thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-                
-                contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-                cnt = max(contours, key=cv2.contourArea)
-                x, y, w, h = cv2.boundingRect(cnt)
+            image_raw[image_raw > 10] = 255
+            blur = cv2.GaussianBlur(image_raw, (5, 5), 0)
+            thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
             
-            # if i % 5 == 0:
-            #     print(self.annotation_df.iloc[i, 4])
-            #     fig, ax = plt.subplots(1,3)
-            #     img_t = cv2.rectangle(np.stack([image_raw, image_raw,image_raw], axis=-1), (x, y), (x + w, y + h), (0, 255, 0), 2)
-            #     ax[0].imshow(image_raw, cmap="gray")
-            #     ax[1].imshow(thresh, cmap="gray")
-            #     ax[2].imshow(img_t)
-            #     plt.show()
-            # img = cv2.rectangle(image_render, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-            # image_render = cv2.imread(image_path_render)
+            # thresh = 255 - thresh
+           
+            
+            contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+            cnt = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(cnt)
             
             tagName = self.annotation_df.iloc[i, -1]
             if tagName != current:
@@ -112,8 +121,9 @@ class TrainDataSet(Dataset):
             height = h / thresh.shape[0]
 
             # saving
+            obj_name=self.annotation_df.iloc[i, 4]
             name = (
-                self.annotation_df.iloc[i, 4]
+                obj_name
                 + "_"
                 + self.annotation_df.iloc[i, 0].replace(".png", "")
             )
@@ -128,37 +138,31 @@ class TrainDataSet(Dataset):
             if i == j * len_per_class - 1:
                 count = 0
 
-            for k in range(2):
-                
+            # read random image on which you will compute a bitwise and
+            random_bg = self.get_random_bg()
+            # adding noise to the backgroung image
+            if obj_name == "base":
+                random_bg_with_noise = self.adding_noise(random_bg=random_bg, obj_name=obj_name)
+                random_bg = random_bg_with_noise
 
-                if k == 0:
-                    # TODO implement in the class
-                    # read random image on which you will compute a bitwise and
-                    path = r"C:\Users\lucaz\Desktop\random"
-                    random = os.listdir(path=path)
-                    
-                    img_name = np.random.choice(random)
-                    random_img = cv2.imread(os.path.join(path, img_name))
-                    random_img = cv2.resize(random_img, (640, 640), interpolation=cv2.INTER_AREA)
-                    random_img = cv2.cvtColor(random_img, cv2.COLOR_BGR2GRAY)
-                    image_raw_orig = image_raw_orig[:,:,0]
-                    
-                    result = np.where(image_raw_orig > 20, image_raw_orig, random_img)
-                    result = np.stack((result,) * 3, axis=-1)
-                    
-                    # saving
-                    with open(f"./{output_folder}/labels/{set}/{name}_{k}.txt", "w+") as label_file:
-                        label_file.write(f"{tagName} {center_x} {center_y} {width} {height}\n")
-                    
-                    cv2.imwrite(f"./{output_folder}/images/{set}/{name}_{k}.jpg", img=result)
-                else:
-                    if i == j * len_per_class - 1:
-                        white_img = np.full(image_raw_orig.shape, 255)
-                        result = np.where(image_raw_orig > 20, image_raw_orig, white_img)
-                        result = np.stack((result,) * 3, axis=-1)
-                        # saving
-                        with open(f"./{output_folder}/labels/{set}/{name}_{k}.txt", "w+") as label_file:
-                            label_file.write(f"{tagName} {center_x} {center_y} {width} {height}\n")
-                        cv2.imwrite(f"./{output_folder}/images/{set}/{name}_{k}.jpg", img=result)
+            image_raw_orig = image_raw_orig[:,:,0]
+            result = np.where(image_raw_orig > 20, image_raw_orig, random_bg)
+            result = np.stack((result,) * 3, axis=-1)
+            
+            # saving
+            with open(f"./{output_folder}/labels/{set}/{name}.txt", "w+") as label_file:
+                label_file.write(f"{tagName} {center_x} {center_y} {width} {height}\n")
+            
+            cv2.imwrite(f"./{output_folder}/images/{set}/{name}.jpg", img=result)
+                # else:
+                #     # if i == j * len_per_class - 1:
+                #     white_img = np.full(image_raw_orig.shape, 255)
+                #     image_raw_orig = image_raw_orig[:,:,0]
+                #     result = np.where(image_raw_orig > 20, image_raw_orig, white_img)
+                #     result = np.stack((result,) * 3, axis=-1)
+                #     # saving
+                #     with open(f"./{output_folder}/labels/{set}/{name}_{k}.txt", "w+") as label_file:
+                #         label_file.write(f"{tagName} {center_x} {center_y} {width} {height}\n")
+                #     cv2.imwrite(f"./{output_folder}/images/{set}/{name}_{k}.jpg", img=result)
                 # plt.imshow(result)
                 # plt.show()
